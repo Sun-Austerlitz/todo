@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.py[co]
+*.pyo
+*.pyd
+*.pdb
+*.egg-info
+*.egg
+dist/
+build/
+wheels/
+.eggs/
+
+# Virtual environments
+.venv
+venv/
+env/
+ENV/
+
+# IDEs & Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Testing & Coverage
+.coverage
+htmlcov/
+.tox/
+.pytest_cache/
+.mypy_cache/
+.pytype/
+pytestdebug.log
+
+# Logs
+*.log
+*.out
+*.err
+
+# Databases
+*.db
+*.sqlite3
+*.sqlite
+
+# Alembic (if you use migrations)
+alembic/versions/*.pyc
+alembic/versions/__pycache__/
+
+# Environment variables & secrets
+.env
+.env.*
+*.secret
+
+# Docker
+docker-compose.override.yml
+*.pid
+
+# Local configs
+*.local

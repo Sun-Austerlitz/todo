@@ -1,0 +1,23 @@
+[project]
+name = "todo"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+
+# Project dependencies
+dependencies = [
+    "fastapi[standard]>=0.116.1",
+    "python-jose>=3.3.0",
+    # Async DB and password hashing
+    "sqlalchemy[asyncio]>=1.4",
+    "asyncpg>=0.27",
+    "aiosqlite>=0.18",
+    "passlib[argon2,bcrypt]>=1.7",
+    "argon2-cffi>=21.3.0",
+    "bcrypt>=4.3.0",
+    "ruff>=0.13.0",
+    "pytest>=8.4.2",
+    # JWT handling with python-jose (used in auth.py)
+    "alembic>=1.16.5",
+]
