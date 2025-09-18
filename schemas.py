@@ -27,3 +27,25 @@ class TodoUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     is_done: Optional[bool] = None
+
+
+class RefreshRequest(BaseModel):
+    """Request body for refreshing access token using a refresh token."""
+    refresh_token: str
+
+
+class TokenResponse(BaseModel):
+    """Standard response containing access and refresh tokens."""
+    access_token: str
+    token_type: str
+    refresh_token: str
+
+
+class LoginRequest(BaseModel):
+    """JSON body for username/password login.
+
+    Используется для удобства клиентов (например, curl или fetch) вместо
+    application/x-www-form-urlencoded формы OAuth2. Поля: username, password.
+    """
+    username: str
+    password: str
