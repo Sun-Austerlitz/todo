@@ -20,14 +20,18 @@ class User(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     # храним пароль только в виде безопасного хэша
     hashed_password = Column(String, nullable=False)
-    # активность аккаунта (можно отключить пользователя)
-    is_active = Column(Boolean, default=True)
+    # активность аккаунта (новые аккаунты требуют подтверждения e-mail)
+    is_active = Column(Boolean, default=False)
     # scopes хранится как JSON-список строк ролей. По умолчанию новый пользователь
     # получает роль "user". Валидация допустимых ролей выполняется на уровне
     # приложения (см. `crud.create_user`).
     scopes = Column(JSON, default=lambda: ["user"])
-    created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
-    updated_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
+    # Email verification token and expiry for activation flow
+    verification_token = Column(String, nullable=True, index=True)
+    verification_expires = Column(DateTime(timezone=True), nullable=True)
+    # Use a callable so the timestamp is evaluated for each row at insert
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 class Todo(Base):
@@ -50,8 +54,9 @@ class Todo(Base):
     owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     owner = relationship("User", back_populates="todos")
     is_done = Column(Boolean, default=False)
-    created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
-    updated_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
+    # Use a callable so the timestamp is evaluated for each row at insert
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     # When the task was completed (nullable)
     completed_at = Column(DateTime(timezone=True), nullable=True)
     # Who completed the task (nullable FK to users)
@@ -71,7 +76,8 @@ class RefreshToken(Base):
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     user = relationship("User", back_populates="refresh_tokens")
     token_hash = Column(String, nullable=False, unique=True, index=True)
-    issued_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc))
+    # issued_at should be set at creation time per-row
+    issued_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     expires_at = Column(DateTime(timezone=True), nullable=False)
     last_used_at = Column(DateTime(timezone=True), nullable=True)
     revoked = Column(Boolean, default=False)

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Security, Response
+from fastapi import APIRouter, Depends, HTTPException, Security
 from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +13,7 @@ from auth import (
     REFRESH_EXPIRE_DAYS,
     pwd_context,
 )
+import logging
 from passlib.exc import UnknownHashError
 from crud import (
     get_todo_by_id,
@@ -276,7 +277,6 @@ async def revoke_session_by_id(
 async def register(
     payload: UserCreate,
     db: AsyncSession = Depends(get_db),
-    response: Response = None,
 ):
     """Создать пользователя (admin only). Принимает JSON body: UserCreate."""
     # базовая политика паролей (можно расширить при необходимости)
@@ -285,27 +285,59 @@ async def register(
 
     existing = await get_user_by_email(db, payload.email)
     if existing:
-        # Safer idempotency: only return the existing user if the caller
-        # supplies the same password. If the password doesn't match, we
-        # treat this as a conflict to avoid silently accepting different
-        # credentials for an already-registered email (prevents confusion
-        # and potential accidental account takeover attempts).
-        try:
-            pw_ok = verify_password(payload.password, existing.hashed_password)
-        except UnknownHashError:
-            pw_ok = False
-        if pw_ok:
-            # Returning existing resource — set status 200 instead of 201
-            if response is not None:
-                response.status_code = 200
-            return existing
-        # Password mismatch — signal that the resource already exists
+        # Best practice: don't allow registration to silently return or
+        # overwrite an existing account. Public registration should fail
+        # if the e-mail is already taken. Clients can then call the login
+        # or password-reset flows as appropriate.
         raise HTTPException(status_code=409, detail="User with this email already exists")
 
     hashed = get_password_hash(payload.password)
-    user = User(email=payload.email, hashed_password=hashed, scopes=payload.scopes or ["user"])
+    # Ignore any incoming scopes from public registration; assign default scope.
+    if getattr(payload, "scopes", None):
+        logging.info("register: ignored scopes from payload for email=%s", payload.email)
+
+    # Create verification token and set new user as inactive until verified
+    from emailer import generate_token, send_verification
+
+    token = generate_token()
+    expires = datetime.now(timezone.utc) + timedelta(hours=1)
+
+    user = User(
+        email=payload.email,
+        hashed_password=hashed,
+        scopes=["user"],
+        verification_token=token,
+        verification_expires=expires,
+        is_active=False,
+    )
     created = await crud_create_user(db, user)
+    # send verification (test emailer stores messages in memory)
+    try:
+        send_verification(created.email, token)
+    except Exception:
+        logging.exception("Failed to send verification email for %s", created.email)
     return created
+
+
+
+@users_router.get("/verify-email")
+async def verify_email(token: str, db: AsyncSession = Depends(get_db)):
+    """Activate a user account using the verification token."""
+    if not token:
+        raise HTTPException(status_code=400, detail="token required")
+    q = await db.execute(select(User).where(User.verification_token == token))
+    user = q.scalars().first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Token not found")
+    if not user.verification_expires or user.verification_expires < datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="Token expired")
+    user.is_active = True
+    user.verification_token = None
+    user.verification_expires = None
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    return {"ok": True, "email": user.email}
 
 
 
