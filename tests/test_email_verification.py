@@ -1,24 +1,27 @@
-from emailer import SENT
 import uuid
+
+from emailer import last_sent_for
 
 
 def test_email_verification_flow(client):
     email = f"verify+{uuid.uuid4().hex}@example.com"
-    payload = {"email": email, "password": "password123"}
+    payload = {"email": email, "password": "s3cretpass"}
     resp = client.post("/register", json=payload)
     assert resp.status_code == 201
-    # Find the last sent verification for this email
-    msg = None
-    for m in reversed(SENT):
-        if m["to"] == email:
-            msg = m
-            break
-    assert msg is not None
-    token = msg["token"]
+    body = resp.json()
+    # new user should be inactive until verified
+    assert body.get("is_active") is False
+
+    sent = last_sent_for(email)
+    assert sent is not None
+    token = sent["token"]
+
     # Verify the token
     v = client.get(f"/verify-email?token={token}")
     assert v.status_code == 200
-    # After verification, login should be allowed
-    data = {"username": email, "password": "password123"}
-    t = client.post("/token", data=data)
-    assert t.status_code == 200
+    assert v.json().get("ok") is True
+
+    # Token should be invalidated after use
+    v2 = client.get(f"/verify-email?token={token}")
+    assert v2.status_code == 404
+
