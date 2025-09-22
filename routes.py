@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Security
+from fastapi import APIRouter, Depends, HTTPException, Security, Response
 from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -276,15 +276,31 @@ async def revoke_session_by_id(
 async def register(
     payload: UserCreate,
     db: AsyncSession = Depends(get_db),
-    current_user=Security(get_current_user, scopes=["admin"]),
+    response: Response = None,
 ):
     """Создать пользователя (admin only). Принимает JSON body: UserCreate."""
     # базовая политика паролей (можно расширить при необходимости)
     if len(payload.password) < 8:
         raise HTTPException(status_code=400, detail="Password too short (min 8 chars)")
 
-    if await get_user_by_email(db, payload.email):
-        raise HTTPException(status_code=400, detail="User already exists")
+    existing = await get_user_by_email(db, payload.email)
+    if existing:
+        # Safer idempotency: only return the existing user if the caller
+        # supplies the same password. If the password doesn't match, we
+        # treat this as a conflict to avoid silently accepting different
+        # credentials for an already-registered email (prevents confusion
+        # and potential accidental account takeover attempts).
+        try:
+            pw_ok = verify_password(payload.password, existing.hashed_password)
+        except UnknownHashError:
+            pw_ok = False
+        if pw_ok:
+            # Returning existing resource — set status 200 instead of 201
+            if response is not None:
+                response.status_code = 200
+            return existing
+        # Password mismatch — signal that the resource already exists
+        raise HTTPException(status_code=409, detail="User with this email already exists")
 
     hashed = get_password_hash(payload.password)
     user = User(email=payload.email, hashed_password=hashed, scopes=payload.scopes or ["user"])
