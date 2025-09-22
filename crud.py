@@ -107,6 +107,23 @@ async def list_refresh_tokens_for_user(db: AsyncSession, user_id: int):
     return q.scalars().all()
 
 
+async def revoke_refresh_tokens_for_user_device_type(db: AsyncSession, user_id: int, device_type: str):
+    """Revoke all active (not revoked) refresh tokens for a user and device_type."""
+    q = await db.execute(
+        select(RefreshToken).where(
+            RefreshToken.user_id == user_id,
+            RefreshToken.device_type == device_type,
+        RefreshToken.revoked.is_(False),
+        )
+    )
+    tokens = q.scalars().all()
+    for t in tokens:
+        t.revoked = True
+        t.last_used_at = datetime.now(timezone.utc)
+        db.add(t)
+    await db.commit()
+
+
 async def revoke_all_refresh_tokens_for_user(db: AsyncSession, user_id: int):
     q = await db.execute(select(RefreshToken).where(RefreshToken.user_id == user_id))
     tokens = q.scalars().all()

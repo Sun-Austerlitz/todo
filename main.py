@@ -14,7 +14,7 @@ async def lifespan(app: FastAPI):
     yield
     await engine.dispose()
 
-
+# Инициализируем FastAPI с хуком lifespan
 app = FastAPI(lifespan=lifespan, title="Todo API", description="Async FastAPI + SQLAlchemy")
 
 # Подключаем маршруты из модуля routes.py

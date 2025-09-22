@@ -3,6 +3,7 @@ from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 from jose import jwt
 from jose.exceptions import JWTError
+from jose.exceptions import ExpiredSignatureError
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials, SecurityScopes
@@ -45,9 +46,7 @@ ALGORITHM = os.environ.get("ALGORITHM", "HS256")
 ACCESS_EXPIRE_MINUTES = int(os.environ.get("ACCESS_EXPIRE_MINUTES", "10"))
 
 # Конфигурация хеширования паролей через passlib.
-# Используем только Argon2 — современный алгоритм KDF, подходящий для новых
-# проектов. Удалён bcrypt-фолбэк: поддержка устаревших алгоритмов усложняет
-# безопасную политику и увеличивает поверхность для ошибок.
+# Используем Argon2 — современный алгоритм KDF, подходящий для новых проектов.
 pwd_context = CryptContext(
     schemes=["argon2"],
     default="argon2",
@@ -131,10 +130,16 @@ async def get_current_user(
     token = credentials.credentials
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    except ExpiredSignatureError:
+        # Access token expired — client should attempt refresh
+        headers = {"WWW-Authenticate": 'Bearer error="invalid_token", error_description="The access token expired"'}
+        raise HTTPException(status_code=401, detail="access token expired", headers=headers)
     except JWTError:
-        raise HTTPException(status_code=401, detail="token [invalid | expired]")
+        headers = {"WWW-Authenticate": 'Bearer error="invalid_token", error_description="The access token is invalid"'}
+        raise HTTPException(status_code=401, detail="access token invalid", headers=headers)
     if payload.get("type") != "access":
-        raise HTTPException(status_code=401, detail="token [invalid | expired]")
+        headers = {"WWW-Authenticate": 'Bearer error="invalid_token", error_description="The token is not an access token"'}
+        raise HTTPException(status_code=401, detail="token invalid type", headers=headers)
 
     email = payload.get("sub")
     if not email:
@@ -149,7 +154,10 @@ async def get_current_user(
     required = set(security_scopes.scopes)
     token_scopes = set(payload.get("scopes", []))
     if required and not required.issubset(token_scopes):
-        raise HTTPException(status_code=403, detail="Not enough permissions")
+        # Inform client about insufficient scopes using RFC-style header
+        scope_str = " ".join(sorted(required))
+        headers = {"WWW-Authenticate": f'Bearer error="insufficient_scope", scope="{scope_str}"'}
+        raise HTTPException(status_code=403, detail="Not enough permissions", headers=headers)
 
     # Compact principal: минимальный JSON-like объект, пригодный для зависимостей
     return {"id": user.id, "email": email, "scopes": list(token_scopes)}

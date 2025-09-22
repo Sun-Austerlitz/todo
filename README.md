@@ -30,6 +30,23 @@ alembic upgrade head
 ```bash
 export DATABASE_URL=postgresql+asyncpg://todo:todo@localhost:5432/todo
 uvicorn main:app --reload
+
+Developer helpers
+-----------------
+
+To create a local admin user safely, use the `scripts/create_superadmin.py` helper.
+
+Example (interactive):
+
+    python3 scripts/create_superadmin.py
+
+Non-interactive (CI / one-off, reads password from env):
+
+    ADMIN_EMAIL=admin@example.com ADMIN_PASSWORD="$ADMIN_PASSWORD" python3 scripts/create_superadmin.py -y
+
+Notes:
+- The script will refuse to run if `ENV=production` unless `--force` is passed.
+- Do not commit passwords to git. Prefer passing passwords via CI secrets or interactive prompt.
 ```
 
 Если нужна помощь с Alembic (конфиг, env.py, привязка к async engine) — откройте issue или напишите, могу добавить
