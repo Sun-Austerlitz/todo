@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, EmailStr, field_validator
+from pydantic import BaseModel, Field, EmailStr
 from typing import Annotated
 from enum import Enum
 from typing import Optional, List
@@ -65,35 +65,14 @@ class DeviceType(str, Enum):
 
 
 class UserCreate(BaseModel):
-    """Payload for creating a user (admin-only endpoint)."""
+    """Payload for creating a user via the public registration endpoint.
+
+    Note: `scopes` is intentionally not part of this schema — public
+    registration must not be able to assign roles. Use admin endpoints to
+    manage scopes.
+    """
     email: EmailStr
     password: Annotated[str, Field(min_length=8)]
-    scopes: Optional[List[str]] = None
-
-    # Basic validators
-    @classmethod
-    def __get_validators__(cls):
-        yield from super().__get_validators__()
-
-    @classmethod
-    def validate(cls, value):
-        # Pydantic will still run standard validation; keep this hook for
-        # future custom checks if needed.
-        return value
-
-    @field_validator("scopes", mode="before")
-    @classmethod
-    def _validate_scopes(cls, v):
-        # Normalize scopes input: accept single string or list, and filter invalid roles
-        valid_roles = {"user", "admin"}
-        if v is None:
-            return ["user"]
-        if isinstance(v, str):
-            v_list = [v]
-        else:
-            v_list = list(v)
-        cleaned = [s for s in v_list if s in valid_roles]
-        return cleaned or ["user"]
 
 
 class UserRead(BaseModel):
