@@ -43,7 +43,7 @@ def hash_refresh_token(raw: str) -> str:
 # и разумное TTL (ACCESS_EXPIRE_MINUTES).
 SECRET_KEY = os.environ.get("SECRET_KEY", "top_secret")
 ALGORITHM = os.environ.get("ALGORITHM", "HS256")
-ACCESS_EXPIRE_MINUTES = int(os.environ.get("ACCESS_EXPIRE_MINUTES", "10"))
+ACCESS_EXPIRE_MINUTES = int(os.environ.get("ACCESS_EXPIRE_MINUTES", "15"))
 
 # Конфигурация хеширования паролей через passlib.
 # Используем Argon2 — современный алгоритм KDF, подходящий для новых проектов.

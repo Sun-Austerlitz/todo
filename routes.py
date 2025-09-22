@@ -1,8 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException, Security
+from fastapi import APIRouter, Depends, HTTPException, Security, Request
+import os
+import time
+import logging
 from typing import List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
+from datetime import datetime, timezone, timedelta
 
-from schemas import TodoCreate, TodoRead, TodoUpdate
+from sqlalchemy import text, select, asc, desc
+
 from auth import (
     get_current_user,
     create_access_token,
@@ -13,16 +18,14 @@ from auth import (
     REFRESH_EXPIRE_DAYS,
     pwd_context,
 )
-import logging
 from passlib.exc import UnknownHashError
+
 from crud import (
     get_todo_by_id,
     create_todo as crud_create_todo,
     get_user_by_email,
     create_user as crud_create_user,
-)
-from crud import get_user_by_id
-from crud import (
+    get_user_by_id,
     create_refresh_token as crud_create_refresh_token,
     get_refresh_token_by_hash as crud_get_refresh_token_by_hash,
     revoke_refresh_token as crud_revoke_refresh_token,
@@ -30,13 +33,24 @@ from crud import (
     revoke_all_refresh_tokens_for_user as crud_revoke_all_refresh_tokens_for_user,
     revoke_refresh_tokens_for_user_device_type as crud_revoke_refresh_tokens_for_user_device_type,
 )
-from db import get_db
-from sqlalchemy import text, select, asc, desc
-from models import Todo, User, RefreshToken
 
-from fastapi import Request
-from datetime import datetime, timezone, timedelta
-from schemas import RefreshRequest, TokenResponse, LoginRequest, DeviceType, UserCreate, UserRead, PasswordChange, PasswordResetRequest
+from models import Todo, User, RefreshToken
+from schemas import (
+    TodoCreate,
+    TodoRead,
+    TodoUpdate,
+    RefreshRequest,
+    TokenResponse,
+    LoginRequest,
+    DeviceType,
+    UserCreate,
+    UserRead,
+    PasswordChange,
+    PasswordResetRequest,
+)
+
+from db import get_db
+from emailer import generate_token, send_verification
 # ...existing code...
 
 
@@ -50,6 +64,26 @@ admin_router = APIRouter(tags=["Admin"])
 
 # Combined router exported to main.py (keeps main.py include_router call working)
 router = APIRouter()
+
+
+# Simple in-memory rate limiter for registration (per-IP timestamps).
+# Defaults are permissive for development/testing; override via env in prod.
+REG_RATE_LIMIT_WINDOW = int(os.environ.get("REG_RATE_LIMIT_WINDOW", str(60 * 60)))  # seconds (default 1 hour)
+REG_MAX_PER_IP = int(os.environ.get("REG_MAX_PER_IP", "100"))  # default 100 per window for dev
+# In-memory store: { ip: [timestamp, ...] }
+_registration_attempts: dict[str, list[float]] = {}
+
+# Small denylist of disposable email domains; expand as needed or load from file
+DISPOSABLE_DOMAINS = set([
+    "mailinator.com",
+    "10minutemail.com",
+    "tempmail.com",
+    "trashmail.com",
+    "guerrillamail.com",
+])
+
+# Whether to require captcha token on registration (off by default)
+REQUIRE_CAPTCHA = os.environ.get("REQUIRE_CAPTCHA", "false").lower() in ("1", "true", "yes")
 
 
 @auth_router.post("/token", response_model=TokenResponse)
@@ -114,6 +148,7 @@ async def login_json(payload: LoginRequest, request: Request, db: AsyncSession =
 @auth_router.post("/token/refresh", response_model=TokenResponse)
 async def refresh_token(payload: RefreshRequest, request: Request, db: AsyncSession = Depends(get_db)):
     """Обновить access token по refresh token."""
+    # (no per-IP rate limiting here; keep refresh focused)
     raw = payload.refresh_token
     if not raw:
         raise HTTPException(status_code=400, detail="refresh_token required")
@@ -277,6 +312,7 @@ async def revoke_session_by_id(
 async def register(
     payload: UserCreate,
     db: AsyncSession = Depends(get_db),
+    request: Request = None,
 ):
     """Создать пользователя (admin only). Принимает JSON body: UserCreate."""
     # базовая политика паролей (можно расширить при необходимости)
@@ -291,14 +327,34 @@ async def register(
         # or password-reset flows as appropriate.
         raise HTTPException(status_code=409, detail="User with this email already exists")
 
+    # Rate limiting by IP (in-memory, per-process). For production use a
+    # centralized store like Redis or a reverse-proxy limit.
+    ip = None
+    if request is not None:
+        xff = request.headers.get("x-forwarded-for")
+        ip = xff.split(",")[0].strip() if xff else (request.client.host if request.client else None)
+    if ip:
+        now = time.time()
+        attempts = _registration_attempts.setdefault(ip, [])
+        cutoff = now - REG_RATE_LIMIT_WINDOW
+        # remove timestamps older than window
+        while attempts and attempts[0] < cutoff:
+            attempts.pop(0)
+        if len(attempts) >= REG_MAX_PER_IP:
+            raise HTTPException(status_code=429, detail="Too many registration attempts from your IP")
+        attempts.append(now)
+
+    # Disposable email domain check
+    domain = payload.email.split("@")[-1].lower()
+    if domain in DISPOSABLE_DOMAINS:
+        raise HTTPException(status_code=400, detail="Disposable email domains are not allowed")
+
     hashed = get_password_hash(payload.password)
     # Ignore any incoming scopes from public registration; assign default scope.
     if getattr(payload, "scopes", None):
         logging.info("register: ignored scopes from payload for email=%s", payload.email)
 
     # Create verification token and set new user as inactive until verified
-    from emailer import generate_token, send_verification
-
     token = generate_token()
     expires = datetime.now(timezone.utc) + timedelta(hours=1)
 
