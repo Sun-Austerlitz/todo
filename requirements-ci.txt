@@ -1,0 +1,11 @@
+pytest
+httpx
+fastapi
+sqlalchemy[asyncio]
+asyncpg
+passlib
+python-jose
+prometheus-client
+aioredis
+aiosmtplib
+ruff

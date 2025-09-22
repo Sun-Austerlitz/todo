@@ -3,8 +3,6 @@
 Минимальное async FastAPI приложение, разделённое на модули: `db`, `models`, `schemas`, `crud`, `auth`, `routes`, `main`.
 
 Инструкции по миграциям
-- Этот проект использует Alembic для управления схемой базы данных (папка `alembic/`).
-- Никогда не используйте `Base.metadata.create_all` в продакшене. Всю работу по изменению схемы выполняют миграции.
 
 Пример: создать и применить миграции
 
@@ -21,8 +19,6 @@ alembic upgrade head
 ```
 
 Локальная разработка — правильный подход
-- Для разработческой среды создавайте простые, воспроизводимые миграции и применяйте их локально.
-- Если нужно быстро восстановить схему для тестов, используйте миграции или отдельные SQL-скрипты/fixtures,
   но не включайте автосоздание схемы в код приложения. Это мешает согласованности схемы между окружениями.
 
 Пример запуска приложения (локально):
@@ -32,7 +28,6 @@ export DATABASE_URL=postgresql+asyncpg://todo:todo@localhost:5432/todo
 uvicorn main:app --reload
 
 Developer helpers
------------------
 
 To create a local admin user safely, use the `scripts/create_superadmin.py` helper.
 
@@ -45,8 +40,22 @@ Non-interactive (CI / one-off, reads password from env):
     ADMIN_EMAIL=admin@example.com ADMIN_PASSWORD="$ADMIN_PASSWORD" python3 scripts/create_superadmin.py -y
 
 Notes:
-- The script will refuse to run if `ENV=production` unless `--force` is passed.
-- Do not commit passwords to git. Prefer passing passwords via CI secrets or interactive prompt.
+
+Development
+-----------
+
+Start a local development environment with Postgres and Redis:
+
+```sh
+docker-compose -f docker-compose.dev.yml up --build
+```
+
+Run tests locally (requires dependencies):
+
+```sh
+PYTHONPATH=. python -m pytest -q
+```
+
 ```
 
 Если нужна помощь с Alembic (конфиг, env.py, привязка к async engine) — откройте issue или напишите, могу добавить
